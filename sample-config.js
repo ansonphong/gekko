@@ -216,7 +216,8 @@ config.trader = {
   key: '',
   secret: '',
   username: '', // your username, only required for specific exchanges.
-  passphrase: '' // GDAX, requires a passphrase.
+  passphrase: '', // GDAX, requires a passphrase.
+  orderUpdateDelay: 1, // Number of minutes to adjust unfilled order prices
 }
 
 config.adviceLogger = {
@@ -283,6 +284,14 @@ config.pushbullet = {
     // will make Gekko messages start mit [GEKKO]
   tag: '[GEKKO]'
 };
+
+config.kodi = {
+  // if you have a username & pass, add it like below
+  // http://user:pass@ip-or-hostname:8080/jsonrpc
+  host: 'http://ip-or-hostname:8080/jsonrpc',
+  enabled: false,
+  sendMessageOnStart: true,
+}
 
 config.ircbot = {
   enabled: false,
