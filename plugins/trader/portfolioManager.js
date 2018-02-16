@@ -49,6 +49,7 @@ var Manager = function(conf) {
   this.currentTradeAveragePrice = 0;
   this.currentTradeAssetAmountTraded;
   this.currentTradeLastTryBalance;
+  this.currentTradeLastAmount;
   this.currentTradeLastTryPrice;
 
   if(_.isNumber(conf.keepAsset)) {
@@ -178,7 +179,7 @@ Manager.prototype.trade = function(what, retry) {
 
   var act = function() {
     var lastAssetOrder = 0;
-    var amount, price;
+    var amount, price, maxTryCurrency;
     if(this.currentTradeTry === 1) // prior to first trade only
       this.logPortfolio();
     
@@ -205,9 +206,16 @@ Manager.prototype.trade = function(what, retry) {
     if(what === 'BUY') {
 
       amount = this.getBalance(this.currency) / this.ticker.ask;
-      if(this.currencyAmountAvailableToTrade !== false && amount > this.currencyAmountAvailableToTrade) {
-        amount = (this.currencyAmountAvailableToTrade - (this.currentTradeAssetAmountTraded * this.currentTradeAveragePrice)) / this.ticker.ask;
+      if (this.currencyAmountAvailableToTrade !== false) {
+        maxTryCurrency = this.currencyAmountAvailableToTrade - (this.currentTradeAssetAmountTraded * this.currentTradeAveragePrice)
+        if (this.getBalance(this.currency) > maxTryCurrency) {
+          amount = maxTryCurrency / this.ticker.ask;
+        } else {
+          amount = this.getBalance(this.currency) / this.ticker.ask;
+        }
       }
+            
+      this.currentTradeLastAmount = amount;
       if(amount > 0){
           price = this.ticker.bid;
           this.buy(amount, price);
@@ -217,6 +225,7 @@ Manager.prototype.trade = function(what, retry) {
     } else if(what === 'SELL') {
 
       amount = this.getBalance(this.asset) - this.keepAsset;
+      this.currentTradeLastAmount = amount;
       if(amount > 0){
           price = this.ticker.ask;
           this.sell(amount, price);
@@ -355,6 +364,13 @@ Manager.prototype.checkOrder = function() {
     }
 
     if(this.currentTradeTry > 1) {
+      // we do not need to get exchange balance again to calculate final trades as we can assume the last order amount was fully filled
+      var lastAssetOrder = this.currentTradeLastAmount;
+      if (this.action == 'SELL') {
+        lastAssetOrder = 0-this.currentTradeLastAmount
+      }
+      this.currentTradeAveragePrice = (lastAssetOrder * this.currentTradeLastTryPrice + this.currentTradeAssetAmountTraded * this.currentTradeAveragePrice) / (lastAssetOrder + this.currentTradeAssetAmountTraded);
+      this.currentTradeAssetAmountTraded = this.currentTradeAssetAmountTraded + lastAssetOrder;
       log.info(
         this.action,
         'was successful after',
