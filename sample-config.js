@@ -218,7 +218,7 @@ config.trader = {
   username: '', // your username, only required for specific exchanges.
   passphrase: '', // GDAX, requires a passphrase.
   orderUpdateDelay: 1, // Number of minutes to adjust unfilled order prices
-  currencyAmountAvailableToTrade = false, // set to a number to limit the amount of base/fiat currency available to Gekko to trade at initiation. Set to false to disable.
+  currencyAmountAvailableToTrade: false, // set to a number to limit the amount of base/fiat currency available to Gekko to trade at initiation. Set to false to disable.
 }
 
 config.adviceLogger = {
