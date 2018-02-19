@@ -44,10 +44,21 @@ var Manager = function(conf) {
   this.currency = conf.currency;
   this.asset = conf.asset;
   this.keepAsset = 0;
+  this.currencyAmountAvailableToTrade = false;
+  this.currentTradeTry;
+  this.currentTradeAveragePrice = 0;
+  this.currentTradeAssetAmountTraded;
+  this.currentTradeLastTryBalance;
+  this.currentTradeLastAmount;
+  this.currentTradeLastTryPrice;
 
   if(_.isNumber(conf.keepAsset)) {
     log.debug('Keep asset is active. Will try to keep at least ' + conf.keepAsset + ' ' + conf.asset);
     this.keepAsset = conf.keepAsset;
+  }
+
+  if(_.isNumber(conf.currencyAmountAvailableToTrade)) {
+    this.currencyAmountAvailableToTrade = conf.currencyAmountAvailableToTrade;
   }
 
   // resets after every order
@@ -99,6 +110,14 @@ Manager.prototype.setPortfolio = function(callback) {
 
     this.portfolio = portfolio;
 
+    if(this.currencyAmountAvailableToTrade !== false && this.getBalance(this.currency) < this.currencyAmountAvailableToTrade) {
+      // reduce currencyAmountAvailableToTrade to equal the current balance if the current balance is lower than the configured currencyAmountAvailableToTrade
+      if(this.getBalance(this.currency) < 0)
+        this.currencyAmountAvailableToTrade = 0;
+      else
+        this.currencyAmountAvailableToTrade = this.getBalance(this.currency);
+    }
+
     if(_.isFunction(callback))
       callback();
 
@@ -149,24 +168,69 @@ Manager.prototype.trade = function(what, retry) {
   if(!retry && _.size(this.orders))
     return this.cancelLastOrder(() => this.trade(what));
 
+  if(!retry) {
+    // first trade attempt, reset current trade variables
+    this.currentTradeAssetAmountTraded = 0;
+    this.currentTradeTry = 1;
+  } else
+    this.currentTradeTry++;
+
   this.action = what;
 
   var act = function() {
-    var amount, price;
+    var lastAssetOrder = 0;
+    var amount, price, maxTryCurrency;
+    if(this.currentTradeTry === 1) // prior to first trade only
+      this.logPortfolio();
+    
+    if(this.currentTradeTry > 1 && this.getBalance(this.asset) != this.currentTradeLastTryBalance) {
+      // the change in asset balance at the exchange is used to check whether the last attempt was partially filled
+      // this method is liable to err if assets withdrawn or deposited during a prolonged trade attempt involving many retries
+      lastAssetOrder = this.getBalance(this.asset) - this.currentTradeLastTryBalance; // work out if the order has been partially filled
+      this.currentTradeAveragePrice = (lastAssetOrder * this.currentTradeLastTryPrice + this.currentTradeAssetAmountTraded * this.currentTradeAveragePrice) / (lastAssetOrder + this.currentTradeAssetAmountTraded);
+      this.currentTradeAssetAmountTraded = this.currentTradeAssetAmountTraded + lastAssetOrder;
+      log.info(
+        'So far, traded',
+        this.currentTradeAssetAmountTraded,
+        this.asset,
+        'for approx',
+        (this.currentTradeAssetAmountTraded * this.currentTradeAveragePrice),
+        this.currency,
+        'Approx average price:',
+        this.currentTradeAveragePrice
+      );
+   }
 
+    this.currentTradeLastTryBalance = this.getBalance(this.asset);
+    this.currentTradeLastTryPrice = this.ticker.ask;
     if(what === 'BUY') {
 
       amount = this.getBalance(this.currency) / this.ticker.ask;
+      if (this.currencyAmountAvailableToTrade !== false) {
+        maxTryCurrency = this.currencyAmountAvailableToTrade - (this.currentTradeAssetAmountTraded * this.currentTradeAveragePrice)
+        if (this.getBalance(this.currency) > maxTryCurrency) {
+          amount = maxTryCurrency / this.ticker.ask;
+        } else {
+          amount = this.getBalance(this.currency) / this.ticker.ask;
+        }
+      }
+            
+      this.currentTradeLastAmount = amount;
       if(amount > 0){
           price = this.ticker.bid;
           this.buy(amount, price);
+      } else {
+        log.debug('Skipping trade as tradable currency balance is 0', this.currency);
       }
     } else if(what === 'SELL') {
 
       amount = this.getBalance(this.asset) - this.keepAsset;
+      this.currentTradeLastAmount = amount;
       if(amount > 0){
           price = this.ticker.ask;
           this.sell(amount, price);
+        } else {
+          log.debug('Skipping trade as tradable asset balance is 0', this.asset);
       }
     }
   };
@@ -299,7 +363,40 @@ Manager.prototype.checkOrder = function() {
       return;
     }
 
-    log.info(this.action, 'was successfull');
+    if(this.currentTradeTry > 1) {
+      // we do not need to get exchange balance again to calculate final trades as we can assume the last order amount was fully filled
+      var lastAssetOrder = this.currentTradeLastAmount;
+      if (this.action == 'SELL') {
+        lastAssetOrder = 0-this.currentTradeLastAmount
+      }
+      this.currentTradeAveragePrice = (lastAssetOrder * this.currentTradeLastTryPrice + this.currentTradeAssetAmountTraded * this.currentTradeAveragePrice) / (lastAssetOrder + this.currentTradeAssetAmountTraded);
+      this.currentTradeAssetAmountTraded = this.currentTradeAssetAmountTraded + lastAssetOrder;
+      log.info(
+        this.action,
+        'was successful after',
+        this.currentTradeTry,
+        'tries, trading',
+        this.currentTradeAssetAmountTraded,
+        this.asset,
+        'for approx',
+        (this.currentTradeAssetAmountTraded * this.currentTradeAveragePrice),
+        this.currency,
+        'Approx average price:',
+        this.currentTradeAveragePrice
+      );
+    } else {
+      log.info(this.action, 'was successful after the first attempt');
+    }
+    
+    // update currencyAmountAvailableToTrade based on whether this had been a sell order or a buy order
+    if(this.currencyAmountAvailableToTrade !== false) {
+      if(this.action === 'BUY') {
+        this.currencyAmountAvailableToTrade = 0;
+      } else if(this.action === 'SELL') { 
+        this.currencyAmountAvailableToTrade = this.currencyAmountAvailableToTrade + (-this.currentTradeAssetAmountTraded * this.currentTradeAveragePrice);
+      }
+      log.info('Buy orders currently restricted to', this.currencyAmountAvailableToTrade, this.currency);
+    }
 
     this.relayOrder();
   }
@@ -392,6 +489,9 @@ Manager.prototype.logPortfolio = function() {
   _.each(this.portfolio, function(fund) {
     log.info('\t', fund.name + ':', parseFloat(fund.amount).toFixed(12));
   });
+  if(this.currencyAmountAvailableToTrade !== false) {
+    log.info('\t', 'Buy orders currently restricted to', this.currencyAmountAvailableToTrade, this.currency);
+  }
 };
 
 module.exports = Manager;
