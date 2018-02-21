@@ -17,6 +17,7 @@ var log = require(dirs.core + 'log');
 var async = require('async');
 var checker = require(dirs.core + 'exchangeChecker.js');
 var moment = require('moment');
+var Trade = require('./trade');
 
 var Manager = function(conf) {
   _.bindAll(this);
@@ -49,44 +50,26 @@ var Manager = function(conf) {
 
   this.action; // TODO : move referrences of this to currentTrade
   this.currencyAllowance = false;
-  this.compoundAllowance = true;
+  this.compoundAllowance = true; // allowance will include profits made from current strategy
   this.netCurrencyAllowance = false;
-
   // this is the model for a trade object, which is pushed to tradeHistory on completion
-  this.currentTrade = {
-    action: false, // options being buy/sell
-    currencyAmount: 0, // base currency
-    assetAmount: 0, // paired asset
-    averagePrice: 0, // weighted average of all attempted orders
-    averageSlippage: 0, // weighted average of slippage
-    filled: 0, 
-    orders:[] // order attempts made to fill the current trade
-  };
-
-  this.orderModel = {
-    currencyAmount: 0,
-    assetAmount: 0,
-    price: 0,
-    slippage: 0, // how much the price has changed since first attempting trade
-    offset: 0 // how much the limit order was offset
-  };
-
+  this.currentTrade = false;
   // the trade history is an array of trade objects
   // which are trades which were completely filled
   this.tradeHistory = [];  
 
+  // resets after every order
+  this.orders = [];
 
 
 
+  // From @Ali1 modifications
   this.currentTradeTry;
   this.currentTradeAveragePrice = 0;
   this.currentTradeAssetAmountTraded;
   this.currentTradeLastTryBalance;
   this.currentTradeLastAmount;
   this.currentTradeLastTryPrice;
-
-
-
 
 
   if(_.isNumber(conf.keepAsset)) {
@@ -98,8 +81,6 @@ var Manager = function(conf) {
     this.currencyAllowance = conf.currencyAllowance;
   }
 
-  // resets after every order
-  this.orders = [];
 };
 
 // teach our trader events
@@ -199,9 +180,12 @@ Manager.prototype.getBalance = function(fund) {
   return this.getFund(fund).amount;
 };
 
+
+
 // This function makes sure the limit order gets submitted
 // to the exchange and initiates order registers watchers.
 Manager.prototype.trade = function(what, retry) {
+
   // if we are still busy executing the last trade
   // cancel that one (and ignore results = assume not filled)
   if(!retry && _.size(this.orders))
