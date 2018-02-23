@@ -210,6 +210,7 @@ Manager.prototype.logPortfolio = function() {
   }
 };
 
+// TODO : impliment different trade execution types / strategies
 Manager.prototype.newTrade = function(what) {
   return this.currentTrade = new Trade(this,{action: what})
 }

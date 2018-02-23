@@ -24,7 +24,7 @@
 
 /*
   The Trade class is responsible for overseeing potentially multiple orders
-  to execute a trade that completely moves a position.
+  to execute a trade that completely moves a position instantiated by the portfolio manager.
 */
 
 var _ = require('lodash')
@@ -51,45 +51,63 @@ class Trade{
 
     // used to calculate slippage across multiple orders
     this.initPrice = 0
+
     // keep averages of the executed trade
     this.averagePrice = 0
     this.averageSlippage = 0
 
-    this.currentOrder = false
-    this.orderHistory = []
+    // store all the order objects
+    this.orders = []
 
-    this.manager.assetAmountTraded = 0
-    this.lastAssetBalance = 0
+    this.assetAmountTraded = 0
+    this.assetBalance = 0
 
     this.isActive = true
     this.doTrade()
   }
 
-
   deinit(callback,param){
-    this.isActive = false
 
     var done = () => {
-      this.manager.tradeHistory.push(this)
-      this.manager.currentTrade = false
+      this.isActive = false
       if(callback)
         callback(param)
-    }
+    }.bind(this)
 
-    if(this.currentOrder)
-      this.currentOrder.cancel(done)
+    let activeOrders = _.where(this.orders, {stat:"open"})
+    if(activeOrders.length > 0)
+      this.cancelOrders(activeOrders,done)
     else
       done()
   }
 
+  getOrderSettings(){
+    return {
+
+    }
+  }
+
   newOrder(settings){
-    // async series - get current bid/ask, create new order
-    //this.orderHistory.push(this.currentOrder)
-    return this.currentOrder = new Order(this,settings)
+
+    // TODO : make option for settings to be an array
+    // if it's an array, fun foreach on the settings and create multiple orders
+
+    let makeNewOrder = () => {
+      let newOrder = new Order(this,{}) // TODO : get order settings - method?
+      this.orders.push(newOrder)
+      return newOrder
+    }.bind(this)
+
+    async.series([
+      this.manager.setTicker,
+      this.manager.setPortfolio,
+      this.manager.setFee
+    ], makeNewOrder); // ??>> _.bind(makeNewOrder, this)
+
   }
 
 
-  validateCurrentOrder(callback){
+  checkActiveOrders(callback){
     // check to see if the bid/ask is the same, calculate offset
     // if the order needs updating, due to slippage, cancel
 
@@ -103,19 +121,30 @@ class Trade{
   }
 
 
-  cancelCurrentOrder(callback){
-    this.currentOrder.cancel((res) => {
+  cancelOrders(orders,callback){
+
+    // get all orders which are stat ACTIVE and cancel them
+    // after all are cancelled successfully, then callback
+    // async series on order.cancel() for each
+
+    // !TODO : bind the function to this
+    // - ASYNC for each "orders" run cancel
+
+    // _.filter(list, predicate, [context])
+    // _.where(this.orders, {stat:"open"})
+
+    XXX.cancel((res) => {
       if(res === true){
         // TODO : log how much of the order was filled
-        log.info("successfully cancelled order:", this.currentOrder.txid)
-        this.orderHistory.push(this.currentOrder)
-        this.currentOrder = false
+        
+        callback()
       }
       else{
-        // if order was not cancelled, reschedule it
+        
         setTimeOut(this.cancelCurrentOrder(callback),2000)
       }
     })
+
   }
 
 
@@ -129,23 +158,9 @@ class Trade{
       this.newOrder()
   }
 
-
   setInitPrice(price){
     if(this.initPrice === 0)
       this.initPrice = price
-  }
-
-
-  // the change in asset balance at the exchange is used to
-  // check whether the last attempt was partially filled
-  // this method is liable to err if assets withdrawn or deposited
-  // during a prolonged trade attempt involving many retries
-  isPartiallyFilled(){
-    return (this.attempts > 1 && this.manager.getBalance(this.manager.asset) != this.lastAssetBalance)
-  }
-
-  getLastOrderId(){
-    return _.last(this.orderHistory).id
   }
 
   // all up all the order amounts and compare to the initial price
@@ -154,7 +169,7 @@ class Trade{
   }
 
   // add up all orders in the order history and get weighted average
-  getAveragePrice(){
+  getAverageTradePrice(){
     
   }
 
@@ -163,212 +178,23 @@ class Trade{
     
   }
 
-
-
   logOrderSummary(){
     log.info(
         'So far, traded',
-        this.currentTradeAssetAmountTraded,
+        this.getAssetAmountTraded(),
         this.manager.asset,
         'for approx',
-        (this.currentTradeAssetAmountTraded * this.currentTradeAveragePrice),
+        (this.getAssetAmountTraded() * this.getAverageTradePrice()),
         this.manager.currency,
         'Approx average price:',
-        this.currentTradeAveragePrice
+        this.getAverageTradePrice()
       )
   }
 
-
-
-  // first do a quick check to see whether we can buy
-  // the asset, if so BUY and keep track of the order
-  // (amount is in asset quantity)
-  buy(amount, price) {
-    let minimum = 0
-    let process = (err, order) => {
-      // if order to small
-      if(!order.amount || order.amount < minimum) {
-        return log.warn(
-          'Wanted to buy',
-          this.manager.asset,
-          'but the amount is too small ',
-          '(' + parseFloat(amount).toFixed(8) + ' @',
-          parseFloat(price).toFixed(8),
-          ') at',
-          this.exchange.name
-        )
-      }
-
-      log.info(
-        'Attempting to BUY',
-        order.amount,
-        this.manager.asset,
-        'at',
-        this.exchange.name,
-        'price:',
-        order.price
-      )
-
-      this.lastOrder = order
-
-      this.exchange.buy(order.amount, order.price, this.noteOrder)
-
-    }
-
-    if (_.has(this.exchange, 'getLotSize')) {
-      
-      this.exchange.getLotSize('buy', amount, price, _.bind(process))
-
-    } else {
-
-      minimum = this.getMinimum(price)
-      process(undefined, { amount: amount, price: price })
-
-    }
-
-
+  orderUpdated(order){
+    // process the order updated status
+    // if it's been filled, deal with it, if it's ...
   }
-
-  // first do a quick check to see whether we can sell
-  // the asset, if so SELL and keep track of the order
-  // (amount is in asset quantity)
-  sell(amount, price) {
-    let minimum = 0
-    let process = (err, order) => {
-      // if order to small
-      if (!order.amount || order.amount < minimum) {
-        return log.warn(
-          'Wanted to buy',
-          this.manager.currency,
-          'but the amount is too small ',
-          '(' + parseFloat(amount).toFixed(8) + ' @',
-          parseFloat(price).toFixed(8),
-          ') at',
-          this.exchange.name
-        )
-      }
-
-      log.info(
-        'Attempting to SELL',
-        order.amount,
-        this.manager.asset,
-        'at',
-        this.exchange.name,
-        'price:',
-        order.price
-      )
-
-      this.exchange.sell(order.amount, order.price, this.noteOrder)
-    }
-
-    if (_.has(this.exchange, 'getLotSize')) {
-      this.exchange.getLotSize('sell', amount, price, _.bind(process))
-    } else {
-      minimum = this.getMinimum(price)
-      process(undefined, { amount: amount, price: price })
-    }
-  }
-
-
-  noteOrder(err, order) {
-    if(err) {
-      util.die(err)
-    }
-
-    // TODO : remove this
-    this.orders.push(order)
-
-    this.currentTrade.orders.push(order)
-
-    /*
-    this.currentTrade.orders.push({
-      txid: order,
-      amount: this.lastOrder.amount,
-      price: this.lastOrder.price,
-      filledAmount: 0
-    })
-    */
-
-
-    // If unfilled, cancel and replace order with adjusted price
-    let cancelDelay = this.conf.orderUpdateDelay || 1
-    setTimeout(this.checkOrder, util.minToMs(cancelDelay))
-  }
-
-
-  // check whether the order got fully filled
-  // if it is not: cancel & instantiate a new order
-  checkOrder() {
-    var handleCheckResult = function(err, filled) {
-      if(!filled) {
-        log.info(this.currentTrade.action, 'order was not (fully) filled, cancelling and creating new order')
-        this.exchange.cancelOrder(_.last(this.orders), _.bind(handleCancelResult, this))
-
-        return
-      }
-
-      if(this.attempts > 1) {
-        // we do not need to get exchange balance again to calculate final trades as we can assume the last order amount was fully filled
-        let currentTradeLastAssetOrder = this.currentTradeLastAmount
-        if (this.currentTrade.action == 'SELL') {
-          currentTradeLastAssetOrder = 0-this.currentTradeLastAmount
-        }
-        this.currentTradeAveragePrice = (currentTradeLastAssetOrder * this.currentTradeLastTryPrice + this.currentTradeAssetAmountTraded * this.currentTradeAveragePrice) / (lastAssetOrder + this.currentTradeAssetAmountTraded)
-        this.currentTradeAssetAmountTraded = this.currentTradeAssetAmountTraded + currentTradeLastAssetOrder
-        log.info(
-          this.currentTrade.action,
-          'was successful after',
-          this.attempts,
-          'tries, trading',
-          this.currentTradeAssetAmountTraded,
-          this.manager.asset,
-          'for approx',
-          (this.currentTradeAssetAmountTraded * this.currentTradeAveragePrice),
-          this.manager.currency,
-          'Approx average price:',
-          this.currentTradeAveragePrice
-        )
-      } else {
-        log.info(this.currentTrade.action, 'was successful after the first attempt')
-      }
-      
-      // update currencyAllowance based on whether this had been a sell order or a buy order
-      if(this.manager.currencyAllowance !== false) {
-        if(this.currentTrade.action === 'BUY') {
-          this.manager.currencyAllowance = 0
-        } else if(this.currentTrade.action === 'SELL') { 
-          this.manager.currencyAllowance = this.manager.currencyAllowance + (-this.currentTradeAssetAmountTraded * this.currentTradeAveragePrice)
-        }
-        log.info('Buy orders currently restricted to', this.manager.currencyAllowance, this.manager.currency)
-      }
-
-      this.relayOrder()
-    }
-
-    var handleCancelResult = function(alreadyFilled) {
-      if(alreadyFilled)
-        return
-
-      if(this.exchangeMeta.forceReorderDelay) {
-          //We need to wait in case a canceled order has already reduced the amount
-          var wait = 10
-          log.debug(`Waiting ${wait} seconds before starting a new trade on ${this.exchangeMeta.name}!`)
-
-          setTimeout(
-              () => this.doTrade(),
-              +moment.duration(wait, 'seconds')
-          )
-          return
-      }
-
-      this.doTrade()
-    }
-
-    this.exchange.checkOrder(_.last(this.orders), _.bind(handleCheckResult, this))
-  }
-
-
-
 
 }
 
