@@ -66,6 +66,18 @@ class Trade{
     this.doTrade()
   }
 
+
+  doTrade(){
+    if(this.currentOrder)
+      this.validateCurrentOrder((res) => {
+        if(res === false)
+          this.cancelCurrentOrder(this.doTrade())
+      })
+    else
+      this.newOrder()
+  }
+
+
   deinit(callback,param){
 
     var done = () => {
@@ -81,11 +93,13 @@ class Trade{
       done()
   }
 
+
   getOrderSettings(){
     return {
 
     }
   }
+
 
   newOrder(settings){
 
@@ -95,7 +109,6 @@ class Trade{
     let makeNewOrder = () => {
       let newOrder = new Order(this,{}) // TODO : get order settings - method?
       this.orders.push(newOrder)
-      return newOrder
     }.bind(this)
 
     async.series([
@@ -148,35 +161,29 @@ class Trade{
   }
 
 
-  doTrade(){
-    if(this.currentOrder)
-      this.validateCurrentOrder((res) => {
-        if(res === false)
-          this.cancelCurrentOrder(this.doTrade())
-      })
-    else
-      this.newOrder()
-  }
-
   setInitPrice(price){
     if(this.initPrice === 0)
       this.initPrice = price
   }
+
 
   // all up all the order amounts and compare to the initial price
   getAverageSlippage(){
     
   }
 
+
   // add up all orders in the order history and get weighted average
   getAverageTradePrice(){
     
   }
 
+
   // add up all amounts filled in the order history
   getAssetAmountTraded(){
     
   }
+
 
   logOrderSummary(){
     log.info(
@@ -191,10 +198,12 @@ class Trade{
       )
   }
 
+
   orderUpdated(order){
     // process the order updated status
     // if it's been filled, deal with it, if it's ...
   }
+
 
 }
 
