@@ -211,20 +211,22 @@ Manager.prototype.logPortfolio = function() {
 };
 
 Manager.prototype.newTrade = function(what) {
-  return new Trade({action: what})
+  return this.currentTrade = new Trade(this,{action: what})
 }
+
 
 // The trade object makes sure the limit order gets submitted
 // to the exchange and initiates order registers watchers.
 Manager.prototype.trade = function(what) {
 
-  // if action is different from the current active trade, make a new trade
   if(this.currentTrade){
+    // if action has changed, make a new trade
     if(this.currentTrade.action !== what){
       this.currentTrade.deinit(this.newTrade,what)
     }
+  // first time, if no trade exists, make a new one
   } else {
-    this.currentTrade = this.newTrade(what)
+    this.newTrade(what)
   }
 
 };
