@@ -35,6 +35,7 @@ var Manager = function(conf) {
   this.conf = conf;
   this.portfolio = {};
   this.fee;
+  this.action; // TODO : remove all referrence so this and let Trade class handle it
 
   this.marketConfig = _.find(this.exchangeMeta.markets, function(p) {
     return _.first(p.pair) === conf.currency.toUpperCase() && _.last(p.pair) === conf.asset.toUpperCase();
@@ -44,10 +45,6 @@ var Manager = function(conf) {
   this.currency = conf.currency;
   this.asset = conf.asset;
   this.keepAsset = 0;
-  
-  // resets after every order
-  // TODO : move referrences of this to currentTrade
-  this.orders = []; 
 
   // contains instantiated trade classes
   this.currentTrade = false
