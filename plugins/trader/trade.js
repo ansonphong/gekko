@@ -41,7 +41,6 @@ class Trade{
     this.asset = manager.asset
     this.action = settings.action
     this.isActive = true
-
     this.orderIds = []
 
     log.debug("creating new Trade class to", this.action, this.asset + "/" + this.currency)
@@ -50,16 +49,12 @@ class Trade{
   }
 
   stop(callback){
-
     this.cancelLastOrder(()=>{
-
       this.isActive = false
       log.debug("stopping Trade class from", this.action + "ING", this.asset + "/" + this.currency)
       if(_.isFunction(callback))
         callback()
-
     })
-
   }
 
   // This function makes sure the limit order gets submitted
