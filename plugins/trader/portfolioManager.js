@@ -35,7 +35,6 @@ var Manager = function(conf) {
   this.conf = conf;
   this.portfolio = {};
   this.fee;
-  
 
   this.marketConfig = _.find(this.exchangeMeta.markets, function(p) {
     return _.first(p.pair) === conf.currency.toUpperCase() && _.last(p.pair) === conf.asset.toUpperCase();
@@ -46,31 +45,13 @@ var Manager = function(conf) {
   this.asset = conf.asset;
   this.keepAsset = 0;
   
-
   // resets after every order
-  this.orders = []; // TODO : move referrences of this to currentTrade
+  // TODO : move referrences of this to currentTrade
+  this.orders = []; 
 
-  // keep while roundtrip happens with exchange, then store in currentTrade
-  this.lastOrder = {}
-
-  this.currencyAllowance = false;
-  this.compoundAllowance = true; // allowance will include profits made from current strategy
-  this.netCurrencyAllowance = false;
-  // this is the model for a trade object, which is pushed to tradeHistory on completion
-  this.currentTrade = false;
-  // the trade history is an array of trade objects
-  // which are trades which were completely filled
-  this.tradeHistory = [];  
-
-  // Todo : Move all order methods, ir. Check order, cancel order, etc, into Trade
-
-
-  // From @Ali1 modifications
-  this.currentTradeAveragePrice = 0;
-  this.currentTradeAssetAmountTraded;
-  this.currentTradeLastAmount;
-  this.currentTradeLastTryPrice;
-
+  // contains instantiated trade classes
+  this.currentTrade = false
+  this.tradeHistory = [];
 
   if(_.isNumber(conf.keepAsset)) {
     log.debug('Keep asset is active. Will try to keep at least ' + conf.keepAsset + ' ' + conf.asset);
@@ -128,16 +109,6 @@ Manager.prototype.setPortfolio = function(callback) {
 
     this.portfolio = portfolio;
 
-    if(this.currencyAllowance !== false &&
-       this.getBalance(this.currency) < this.currencyAllowance) {
-      // reduce currencyAllowance to equal the current balance
-      // if the current balance is lower than the configured currencyAllowance
-      if(this.getBalance(this.currency) < 0)
-        this.currencyAllowance = 0;
-      else
-        this.currencyAllowance = this.getBalance(this.currency);
-    }
-
     if(_.isFunction(callback))
       callback();
 
@@ -176,6 +147,7 @@ Manager.prototype.setTicker = function(callback) {
 Manager.prototype.getFund = function(fund) {
   return _.find(this.portfolio, function(f) { return f.name === fund});
 };
+
 Manager.prototype.getBalance = function(fund) {
   return this.getFund(fund).amount;
 };
@@ -188,6 +160,50 @@ Manager.prototype.getMinimum = function(price) {
 };
 
 
+// calculate how much we can buy or sell
+Manager.prototype.getTradeAmount = function(what) {
+  if(what === "BUY"){
+    return this.getBalance(this.currency) / this.ticker.ask;
+  }
+  else if (what === "SELL"){
+    return this.getBalance(this.asset) - this.keepAsset;
+  }
+  return false
+}
+
+// instantiate a new trade object
+// TODO : impliment different trade execution types / strategies
+//        by invoking variable trade subclasses
+Manager.prototype.newTrade = function(what) {
+  let tradeAmount = this.tradeAmount(what)
+
+  if(!tradeAmount)
+    return false
+
+  return new Trade(this,{
+    action: what,
+    currency:this.currency,
+    asset:this.asset,
+    amount: tradeAmount
+  })
+
+}
+
+// The trade object makes sure the limit order gets submitted
+// to the exchange and initiates order registers watchers.
+Manager.prototype.trade = function(what) {
+
+  if(this.currentTrade){
+    // if action has changed, make a new trade
+    if(this.currentTrade.action !== what){
+      this.currentTrade.deinit(this.trade,what)
+    }
+  // if no trade exists, make a new one
+  } else {
+    this.currentTrade = this.newTrade(what)
+  }
+};
+
 // convert into the portfolio expected by the performanceAnalyzer
 Manager.prototype.convertPortfolio = function(portfolio) {
   var asset = _.find(portfolio, a => a.name === this.asset).amount;
@@ -199,39 +215,6 @@ Manager.prototype.convertPortfolio = function(portfolio) {
     balance: currency + (asset * this.ticker.bid)
   }
 }
-
-Manager.prototype.logPortfolio = function() {
-  log.info(this.exchange.name, 'portfolio:');
-  _.each(this.portfolio, function(fund) {
-    log.info('\t', fund.name + ':', parseFloat(fund.amount).toFixed(12));
-  });
-  if(this.currencyAllowance !== false) {
-    log.info('\t', 'Buy orders currently restricted to', this.currencyAllowance, this.currency);
-  }
-};
-
-// TODO : impliment different trade execution types / strategies
-Manager.prototype.newTrade = function(what) {
-  return this.currentTrade = new Trade(this,{action: what})
-}
-
-
-// The trade object makes sure the limit order gets submitted
-// to the exchange and initiates order registers watchers.
-Manager.prototype.trade = function(what) {
-
-  if(this.currentTrade){
-    // if action has changed, make a new trade
-    if(this.currentTrade.action !== what){
-      this.currentTrade.deinit(this.newTrade,what)
-    }
-  // first time, if no trade exists, make a new one
-  } else {
-    this.newTrade(what)
-  }
-
-};
-
 
 Manager.prototype.relayOrder = function(done) {
   // look up all executed orders and relay average.
@@ -263,7 +246,7 @@ Manager.prototype.relayOrder = function(done) {
         // this is in uppercase, everywhere else
         // (UI, performanceAnalyzer, etc. it is
         // lowercase)
-        action: this.currentTrade.action.toLowerCase()
+        action: this.action.toLowerCase()
       });
 
       this.orders = [];
@@ -282,7 +265,15 @@ Manager.prototype.relayOrder = function(done) {
   async.series(getOrders, relay);
 }
 
-
+Manager.prototype.logPortfolio = function() {
+  log.info(this.exchange.name, 'portfolio:');
+  _.each(this.portfolio, function(fund) {
+    log.info('\t', fund.name + ':', parseFloat(fund.amount).toFixed(12));
+  });
+  if(this.currencyAllowance !== false) {
+    log.info('\t', 'Buy orders currently restricted to', this.currencyAllowance, this.currency);
+  }
+};
 
 
 module.exports = Manager;

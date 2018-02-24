@@ -41,13 +41,12 @@ class Trade{
   constructor(manager,settings){
     this.manager = manager
     this.exchange = manager.exchange
+    this.currency = settings.currency
+    this.asset = settings.asset
 
+    this.isActive = true
     this.action = settings.action // BUY/SELL
     this.stat = "unfilled" // unfilled/partial/filled/cancelled
-
-    // inherit manager properties
-    this.currencyAllowance = this.manager.currencyAllowance
-    this.keepAsset = this.manager.keepAsset
 
     // used to calculate slippage across multiple orders
     this.initPrice = 0
@@ -62,8 +61,9 @@ class Trade{
     this.assetAmountTraded = 0
     this.assetBalance = 0
 
-    this.isActive = true
     this.doTrade()
+
+    return true
   }
 
 
@@ -79,6 +79,11 @@ class Trade{
 
 
   deinit(callback,param){
+    // TODO : update stat
+
+    if(!this.isActive){
+      return callback(param)
+    }
 
     var done = () => {
       this.isActive = false
@@ -111,6 +116,7 @@ class Trade{
       this.orders.push(newOrder)
     }.bind(this)
 
+    // TODO : modularize this so it's not dependent on parent manager object
     async.series([
       this.manager.setTicker,
       this.manager.setPortfolio,
