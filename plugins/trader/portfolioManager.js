@@ -55,10 +55,6 @@ var Manager = function(conf) {
     this.keepAsset = conf.keepAsset;
   }
 
-  if(_.isNumber(conf.currencyAllowance)) {
-    this.currencyAllowance = conf.currencyAllowance;
-  }
-
 };
 
 // teach our trader events
@@ -156,6 +152,20 @@ Manager.prototype.getMinimum = function(price) {
     return minimum = this.minimalOrder.amount;
 };
 
+// The trade object makes sure the limit order gets submitted
+// to the exchange and initiates order registers watchers.
+Manager.prototype.trade = function(what) {
+
+  if(this.currentTrade){
+    // if action has changed, make a new trade
+    if(this.currentTrade.action !== what){
+      this.currentTrade.deinit(this.trade,what)
+    }
+  // if no trade exists, make a new one
+  } else {
+    this.currentTrade = this.newTrade(what)
+  }
+};
 
 // calculate how much we can buy or sell
 Manager.prototype.getTradeAmount = function(what) {
@@ -166,7 +176,7 @@ Manager.prototype.getTradeAmount = function(what) {
     return this.getBalance(this.asset) - this.keepAsset;
   }
   return false
-}
+};
 
 // instantiate a new trade object
 // TODO : impliment different trade execution types / strategies
@@ -183,22 +193,6 @@ Manager.prototype.newTrade = function(what) {
     asset:this.asset,
     amount: tradeAmount
   })
-
-}
-
-// The trade object makes sure the limit order gets submitted
-// to the exchange and initiates order registers watchers.
-Manager.prototype.trade = function(what) {
-
-  if(this.currentTrade){
-    // if action has changed, make a new trade
-    if(this.currentTrade.action !== what){
-      this.currentTrade.deinit(this.trade,what)
-    }
-  // if no trade exists, make a new one
-  } else {
-    this.currentTrade = this.newTrade(what)
-  }
 };
 
 // convert into the portfolio expected by the performanceAnalyzer
@@ -267,9 +261,6 @@ Manager.prototype.logPortfolio = function() {
   _.each(this.portfolio, function(fund) {
     log.info('\t', fund.name + ':', parseFloat(fund.amount).toFixed(12));
   });
-  if(this.currencyAllowance !== false) {
-    log.info('\t', 'Buy orders currently restricted to', this.currencyAllowance, this.currency);
-  }
 };
 
 
