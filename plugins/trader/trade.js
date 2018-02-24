@@ -17,7 +17,6 @@
   Or one that tries to split the order out into multiple small ones (bigger traders need ways to take
   pressure of the market for example).
 
-  TODO - Do not cancel existing order if it's going to place at the same amount
 */
 
 /*
@@ -33,7 +32,6 @@ var log = require(dirs.core + 'log')
 var async = require('async')
 var checker = require(dirs.core + 'exchangeChecker.js')
 var moment = require('moment')
-var Order = require('./order')
 
 class Trade{
   constructor(manager,settings){
@@ -43,191 +41,236 @@ class Trade{
     this.asset = manager.asset
     this.action = settings.action
     this.isActive = true
-    this.stat = "unfilled" // unfilled/partial/filled/cancelled
 
-    // TODO - have this passed in as a settings property
-    this.amount = 0
-    // used to calculate slippage across multiple orders
-    this.initPrice = 0
-
-    // keep averages of the current executed trade
-    this.averagePrice = 0
-    this.averageSlippage = 0
-    this.assetAmountTraded = 0
-
-    // store all the order IDs
     this.orderIds = []
 
     this.doTrade()
   }
 
-  doTrade(){
-    if(this.currentOrder){
-      this.validateCurrentOrder((res) => {
-        if(res === false)
-          this.cancelCurrentOrder(this.doTrade())
-      })
-    }
-    else{
-      this.newOrder()
-    }
+  // This function makes sure the limit order gets submitted
+  // to the exchange and initiates order registers watchers.
+  doTrade(retry) {
+    // if we are still busy executing the last trade
+    // cancel that one (and ignore results = assume not filled)
+    if(!retry && _.size(this.orderIds))
+      return this.cancelLastOrder(() => this.doTrade());
 
-  }
+    var act = function() {
+      var amount, price;
 
-  getActiveOrders(){
-    return _.where(this.orders,{isActive:true})
-  }
+      if(this.action === 'BUY') {
 
-  checkOrders(){
-    // check if existing active orders are at the same price as potential new orders
-    // if not, we can cancel them and make new orders
-  }
+        amount = this.manager.getBalance(this.currency) / this.manager.ticker.ask;
+        if(amount > 0){
+            price = this.manager.ticker.bid;
+            this.buy(amount, price);
+        }
+      } else if(this.action === 'SELL') {
 
-  
-  deinit(callback){
-    // TODO - update stat
-
-    if(!this.isActive){
-      return callback()
-    }
-
-    var done = () => {
-      this.isActive = false
-      if(_.isFunction(callback))
-        callback()
-    }.bind(this) // binding is not required in ES6
-
-    let activeOrders = _.where(this.orders, {stat:"open"})
-    if(activeOrders.length > 0)
-      this.cancelOrders(activeOrders,done)
-    else
-      done()
-  }
-
-
-  getOrderSettings(){
-    return {
-
-    }
-  }
-
-
-  newOrder(settings){
-
-    // TODO - make option for settings to be an array
-    // if it's an array, fun foreach on the settings and create multiple orders
-
-    let makeNewOrder = () => {
-      let newOrder = new Order(this,{}) // TODO - get order settings - method?
-      this.orders.push(newOrder)
-    }.bind(this)
-
-    // TODO - modularize this so it's not dependent on parent manager object
+        amount = this.manager.getBalance(this.asset) - this.manager.keepAsset;
+        if(amount > 0){
+            price = this.manager.ticker.ask;
+            this.sell(amount, price);
+        }
+      }
+    };
     async.series([
       this.manager.setTicker,
       this.manager.setPortfolio,
       this.manager.setFee
-    ], makeNewOrder); // ??>> _.bind(makeNewOrder, this)
+    ], _.bind(act, this));
 
-  }
-
-
-  checkActiveOrders(callback){
-    // check to see if the bid/ask is the same, calculate offset
-    // if the order needs updating, due to slippage, cancel
-
-    if(!validOrder)
-      this.cancelCurrentOrder(callback)
-
-      // ...
-      // run the callback with result, boolean, true if valid, false if invalid
-      callback(res)
-
-  }
-
-  // calculate how much we can buy or sell
-  // TODO - compare against minimum order increments
-  //      - hit method in portfolio manager which calculates currency allowance
-  getTradeAmount() {
-    if(this.action === "BUY"){
-      return this.manager.getBalance(this.currency) / this.manager.ticker.ask;
-    }
-    else if (this.action === "SELL"){
-      return this.manager.getBalance(this.asset) - this.manager.keepAsset;
-    }
-    return false
   };
 
-  cancelOrders(orders,callback){
-
-    // get all orders which are stat ACTIVE and cancel them
-    // after all are cancelled successfully, then callback
-    // async series on order.cancel() for each
-
-    // !TODO - bind the function to this
-    // - ASYNC for each "orders" run cancel
-
-    // _.filter(list, predicate, [context])
-    // _.where(this.orders, {stat:"open"})
-
-    XXX.cancel((res) => {
-      if(res === true){
-        // TODO - log how much of the order was filled
-        
-        callback()
+  // first do a quick check to see whether we can buy
+  // the asset, if so BUY and keep track of the order
+  // (amount is in asset quantity)
+  buy(amount, price) {
+    let minimum = 0;
+    let process = (err, order) => {
+      // if order to small
+      if(!order.amount || order.amount < minimum) {
+        return log.warn(
+          'Wanted to buy',
+          this.asset,
+          'but the amount is too small ',
+          '(' + parseFloat(amount).toFixed(8) + ' @',
+          parseFloat(price).toFixed(8),
+          ') at',
+          this.exchange.name
+        );
       }
-      else{
-        
-        setTimeOut(this.cancelCurrentOrder(callback),2000)
+
+      log.info(
+        'Attempting to BUY',
+        order.amount,
+        this.asset,
+        'at',
+        this.exchange.name,
+        'price:',
+        order.price
+      );
+
+      this.exchange.buy(order.amount, order.price, this.noteOrder);
+    }
+
+    if (_.has(this.exchange, 'getLotSize')) {
+      this.exchange.getLotSize('buy', amount, price, _.bind(process));
+    } else {
+      minimum = this.manager.getMinimum(price);
+      process(undefined, { amount: amount, price: price });
+    }
+  };
+
+  // first do a quick check to see whether we can sell
+  // the asset, if so SELL and keep track of the order
+  // (amount is in asset quantity)
+  sell(amount, price) {
+    let minimum = 0;
+    let process = (err, order) => {
+      // if order to small
+      if (!order.amount || order.amount < minimum) {
+        return log.warn(
+          'Wanted to buy',
+          this.currency,
+          'but the amount is too small ',
+          '(' + parseFloat(amount).toFixed(8) + ' @',
+          parseFloat(price).toFixed(8),
+          ') at',
+          this.exchange.name
+        );
       }
-    })
 
+      log.info(
+        'Attempting to SELL',
+        order.amount,
+        this.asset,
+        'at',
+        this.exchange.name,
+        'price:',
+        order.price
+      );
+
+      this.exchange.sell(order.amount, order.price, this.noteOrder);
+    }
+
+    if (_.has(this.exchange, 'getLotSize')) {
+      this.exchange.getLotSize('sell', amount, price, _.bind(process));
+    } else {
+      minimum = this.manager.getMinimum(price);
+      process(undefined, { amount: amount, price: price });
+    }
+  };
+
+
+  // check whether the order got fully filled
+  // if it is not: cancel & instantiate a new order
+  checkOrder() {
+    var handleCheckResult = function(err, filled) {
+      if(!filled) {
+        log.info(this.action, 'order was not (fully) filled, cancelling and creating new order');
+        this.exchange.cancelOrder(_.last(this.orderIds), _.bind(handleCancelResult, this));
+
+        return;
+      }
+
+      log.info(this.action, 'was successfull');
+
+      this.relayOrder();
+    }
+
+    var handleCancelResult = function(alreadyFilled) {
+      if(alreadyFilled)
+        return;
+
+      if(this.exchangeMeta.forceReorderDelay) {
+          //We need to wait in case a canceled order has already reduced the amount
+          var wait = 10;
+          log.debug(`Waiting ${wait} seconds before starting a new trade on ${this.exchangeMeta.name}!`);
+
+          setTimeout(
+              () => this.doTrade(this.action, true),
+              +moment.duration(wait, 'seconds')
+          );
+          return;
+      }
+
+      this.doTrade(this.action, true);
+    }
+
+    this.exchange.checkOrder(_.last(this.orderIds), _.bind(handleCheckResult, this));
   }
 
+  cancelLastOrder(done) {
+    this.exchange.cancelOrder(_.last(this.orderIds), alreadyFilled => {
+      if(alreadyFilled)
+        return this.relayOrder(done);
 
-  setInitPrice(price){
-    if(this.initPrice === 0)
-      this.initPrice = price
+      this.orderIds = [];
+      done();
+    });
   }
 
+  noteOrder(err, order) {
+    if(err) {
+      util.die(err);
+    }
 
-  // all up all the order amounts and compare to the initial price
-  getAverageSlippage(){
-    
+    this.orderIds.push(order);
+
+    // If unfilled, cancel and replace order with adjusted price
+    let cancelDelay = this.manager.conf.orderUpdateDelay || 1;
+    setTimeout(this.checkOrder, util.minToMs(cancelDelay));
+  };
+
+  relayOrder(done) {
+    // look up all executed orders and relay average.
+    var relay = (err, res) => {
+
+      var price = 0;
+      var amount = 0;
+      var date = moment(0);
+
+      _.each(res.filter(o => !_.isUndefined(o) && o.amount), order => {
+        date = _.max([moment(order.date), date]);
+        price = ((price * amount) + (order.price * order.amount)) / (order.amount + amount);
+        amount += +order.amount;
+      });
+
+      async.series([
+        this.setPortfolio,
+        this.setTicker
+      ], () => {
+        const portfolio = this.convertPortfolio(this.portfolio);
+
+        this.emit('trade', {
+          date,
+          price,
+          portfolio: portfolio,
+          balance: portfolio.balance,
+
+          // NOTE: within the portfolioManager
+          // this is in uppercase, everywhere else
+          // (UI, performanceAnalyzer, etc. it is
+          // lowercase)
+          action: this.action.toLowerCase()
+        });
+
+        this.orderIds = [];
+
+        if(_.isFunction(done))
+          done();
+      });
+
+    }
+
+    var getOrders = _.map(
+      this.orderIds,
+      order => next => this.exchange.getOrder(order, next)
+    );
+
+    async.series(getOrders, relay);
   }
-
-
-  // add up all orders in the order history and get weighted average
-  getAverageTradePrice(){
-    
-  }
-
-
-  // add up all amounts filled in the order history
-  getAssetAmountTraded(){
-    
-  }
-
-
-  logOrderSummary(){
-    log.info(
-        'So far, traded',
-        this.getAssetAmountTraded(),
-        this.manager.asset,
-        'for approx',
-        (this.getAssetAmountTraded() * this.getAverageTradePrice()),
-        this.manager.currency,
-        'Approx average price:',
-        this.getAverageTradePrice()
-      )
-  }
-
-
-  orderUpdated(order){
-    // process the order updated status
-    // if it's been filled, deal with it, if it's ...
-  }
-
 
 }
 

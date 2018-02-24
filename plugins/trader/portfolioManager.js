@@ -35,7 +35,6 @@ var Manager = function(conf) {
   this.conf = conf;
   this.portfolio = {};
   this.fee;
-  this.action; // TODO - remove all referrence so this and let Trade class handle it
 
   this.marketConfig = _.find(this.exchangeMeta.markets, function(p) {
     return _.first(p.pair) === conf.currency.toUpperCase() && _.last(p.pair) === conf.asset.toUpperCase();
@@ -153,19 +152,21 @@ Manager.prototype.getMinimum = function(price) {
 };
 
 Manager.prototype.trade = function(what) {
-  if(what)
-    this.action = what;
+
+  var makeNewTrade = function(){
+    this.newTrade(what)
+  }.bind(this)
 
   // if an active trade is currently happening
   if(this.currentTrade && this.currentTrade.isActive){
-    if(this.currentTrade.action !== this.action){
+    if(this.currentTrade.action !== what){
       // stop the current trade, and then re-run this method
-      this.currentTrade.deinit(this.trade)
+      this.currentTrade.cancelLastOrder(makeNewTrade)
     } else{
       // do nothing, the trade is already going
     }
   } else {
-    this.newTrade(this.action)
+    makeNewTrade()
   }
 };
 
@@ -192,55 +193,6 @@ Manager.prototype.convertPortfolio = function(portfolio) {
     asset,
     balance: currency + (asset * this.ticker.bid)
   }
-}
-
-Manager.prototype.relayOrder = function(done) {
-  // look up all executed orders and relay average.
-  var relay = (err, res) => {
-
-    var price = 0;
-    var amount = 0;
-    var date = moment(0);
-
-    _.each(res.filter(o => !_.isUndefined(o) && o.amount), order => {
-      date = _.max([moment(order.date), date]);
-      price = ((price * amount) + (order.price * order.amount)) / (order.amount + amount);
-      amount += +order.amount;
-    });
-
-    async.series([
-      this.setPortfolio,
-      this.setTicker
-    ], () => {
-      const portfolio = this.convertPortfolio(this.portfolio);
-
-      this.emit('trade', {
-        date,
-        price,
-        portfolio: portfolio,
-        balance: portfolio.balance,
-
-        // NOTE: within the portfolioManager
-        // this is in uppercase, everywhere else
-        // (UI, performanceAnalyzer, etc. it is
-        // lowercase)
-        action: this.action.toLowerCase()
-      });
-
-      this.orders = [];
-
-      if(_.isFunction(done))
-        done();
-    });
-
-  }
-
-  var getOrders = _.map(
-    this.orders,
-    order => next => this.exchange.getOrder(order, next)
-  );
-
-  async.series(getOrders, relay);
 }
 
 Manager.prototype.logPortfolio = function() {
