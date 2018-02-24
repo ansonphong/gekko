@@ -44,12 +44,30 @@ class Trade{
 
     this.orderIds = []
 
+    log.debug("creating new Trade class to", this.action, this.asset + "/" + this.currency)
+
     this.doTrade()
+  }
+
+  stop(callback){
+
+    this.cancelLastOrder(()=>{
+
+      this.isActive = false
+      log.debug("stopping Trade class from", this.action + "ING", this.asset + "/" + this.currency)
+      if(_.isFunction(callback))
+        callback()
+
+    })
+
   }
 
   // This function makes sure the limit order gets submitted
   // to the exchange and initiates order registers watchers.
   doTrade(retry) {
+    if(!this.isActive)
+      return false
+    
     // if we are still busy executing the last trade
     // cancel that one (and ignore results = assume not filled)
     if(!retry && _.size(this.orderIds))
@@ -111,7 +129,7 @@ class Trade{
         order.price
       );
 
-      this.exchange.buy(order.amount, order.price, this.noteOrder);
+      this.exchange.buy(order.amount, order.price, _.bind(this.noteOrder,this) );
     }
 
     if (_.has(this.exchange, 'getLotSize')) {
@@ -151,7 +169,7 @@ class Trade{
         order.price
       );
 
-      this.exchange.sell(order.amount, order.price, this.noteOrder);
+      this.exchange.sell(order.amount, order.price, _.bind(this.noteOrder,this));
     }
 
     if (_.has(this.exchange, 'getLotSize')) {
@@ -174,7 +192,8 @@ class Trade{
         return;
       }
 
-      log.info(this.action, 'was successfull');
+      log.debug("Trade class was successful", this.action + "ING", this.asset + "/" + this.currency)
+      this.isActive = false;
 
       this.relayOrder();
     }
@@ -183,19 +202,19 @@ class Trade{
       if(alreadyFilled)
         return;
 
-      if(this.exchangeMeta.forceReorderDelay) {
+      if(this.manager.exchangeMeta.forceReorderDelay) {
           //We need to wait in case a canceled order has already reduced the amount
           var wait = 10;
           log.debug(`Waiting ${wait} seconds before starting a new trade on ${this.exchangeMeta.name}!`);
 
           setTimeout(
-              () => this.doTrade(this.action, true),
+              () => this.doTrade(true),
               +moment.duration(wait, 'seconds')
           );
           return;
       }
 
-      this.doTrade(this.action, true);
+      this.doTrade(true);
     }
 
     this.exchange.checkOrder(_.last(this.orderIds), _.bind(handleCheckResult, this));
@@ -220,7 +239,7 @@ class Trade{
 
     // If unfilled, cancel and replace order with adjusted price
     let cancelDelay = this.manager.conf.orderUpdateDelay || 1;
-    setTimeout(this.checkOrder, util.minToMs(cancelDelay));
+    setTimeout(_.bind(this.checkOrder,this), util.minToMs(cancelDelay));
   };
 
   relayOrder(done) {
@@ -238,10 +257,10 @@ class Trade{
       });
 
       async.series([
-        this.setPortfolio,
-        this.setTicker
+        this.manager.setPortfolio,
+        this.manager.setTicker
       ], () => {
-        const portfolio = this.convertPortfolio(this.portfolio);
+        const portfolio = this.manager.convertPortfolio(this.manager.portfolio);
 
         this.emit('trade', {
           date,
@@ -273,5 +292,7 @@ class Trade{
   }
 
 }
+
+util.makeEventEmitter(Trade)
 
 module.exports = Trade

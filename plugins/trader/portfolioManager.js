@@ -160,8 +160,8 @@ Manager.prototype.trade = function(what) {
   // if an active trade is currently happening
   if(this.currentTrade && this.currentTrade.isActive){
     if(this.currentTrade.action !== what){
-      // stop the current trade, and then re-run this method
-      this.currentTrade.cancelLastOrder(makeNewTrade)
+      // if the action is different, stop the current trade, then start a new one
+      this.currentTrade.stop(makeNewTrade)
     } else{
       // do nothing, the trade is already going
     }
