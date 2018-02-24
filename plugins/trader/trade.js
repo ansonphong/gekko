@@ -17,9 +17,7 @@
   Or one that tries to split the order out into multiple small ones (bigger traders need ways to take
   pressure of the market for example).
 
-  TODO : 
-  - Do not cancel existing order if it's going to place at the same amount
-
+  TODO - Do not cancel existing order if it's going to place at the same amount
 */
 
 /*
@@ -41,55 +39,63 @@ class Trade{
   constructor(manager,settings){
     this.manager = manager
     this.exchange = manager.exchange
-    this.currency = settings.currency
-    this.asset = settings.asset
-
+    this.currency = manager.currency
+    this.asset = manager.asset
+    this.action = settings.action
     this.isActive = true
-    this.action = settings.action // BUY/SELL
     this.stat = "unfilled" // unfilled/partial/filled/cancelled
 
+    // TODO - have this passed in as a settings property
+    this.amount = 0
     // used to calculate slippage across multiple orders
     this.initPrice = 0
 
-    // keep averages of the executed trade
+    // keep averages of the current executed trade
     this.averagePrice = 0
     this.averageSlippage = 0
-
-    // store all the order objects
-    this.orders = []
-
     this.assetAmountTraded = 0
-    this.assetBalance = 0
+
+    // store all the order IDs
+    this.orderIds = []
 
     this.doTrade()
-
-    return true
   }
 
-
   doTrade(){
-    if(this.currentOrder)
+    if(this.currentOrder){
       this.validateCurrentOrder((res) => {
         if(res === false)
           this.cancelCurrentOrder(this.doTrade())
       })
-    else
+    }
+    else{
       this.newOrder()
+    }
+
   }
 
+  getActiveOrders(){
+    return _.where(this.orders,{isActive:true})
+  }
 
-  deinit(callback,param){
-    // TODO : update stat
+  checkOrders(){
+    // check if existing active orders are at the same price as potential new orders
+    // if not, we can cancel them and make new orders
+  }
+
+  
+  deinit(callback){
+    // TODO - update stat
 
     if(!this.isActive){
-      return callback(param)
+      return callback()
     }
 
     var done = () => {
       this.isActive = false
-      if(callback)
-        callback(param)
-    }.bind(this)
+      if(_.isFunction(callback))
+        callback()
+    }.bind(this) // binding is not required in ES6
 
     let activeOrders = _.where(this.orders, {stat:"open"})
     if(activeOrders.length > 0)
@@ -108,15 +114,15 @@ class Trade{
 
   newOrder(settings){
 
-    // TODO : make option for settings to be an array
+    // TODO - make option for settings to be an array
     // if it's an array, fun foreach on the settings and create multiple orders
 
     let makeNewOrder = () => {
-      let newOrder = new Order(this,{}) // TODO : get order settings - method?
+      let newOrder = new Order(this,{}) // TODO - get order settings - method?
       this.orders.push(newOrder)
     }.bind(this)
 
-    // TODO : modularize this so it's not dependent on parent manager object
+    // TODO - modularize this so it's not dependent on parent manager object
     async.series([
       this.manager.setTicker,
       this.manager.setPortfolio,
@@ -139,6 +145,18 @@ class Trade{
 
   }
 
+  // calculate how much we can buy or sell
+  // TODO - compare against minimum order increments
+  //      - hit method in portfolio manager which calculates currency allowance
+  getTradeAmount() {
+    if(this.action === "BUY"){
+      return this.manager.getBalance(this.currency) / this.manager.ticker.ask;
+    }
+    else if (this.action === "SELL"){
+      return this.manager.getBalance(this.asset) - this.manager.keepAsset;
+    }
+    return false
+  };
 
   cancelOrders(orders,callback){
 
@@ -146,7 +164,7 @@ class Trade{
     // after all are cancelled successfully, then callback
     // async series on order.cancel() for each
 
-    // !TODO : bind the function to this
+    // !TODO - bind the function to this
     // - ASYNC for each "orders" run cancel
 
     // _.filter(list, predicate, [context])
@@ -154,7 +172,7 @@ class Trade{
 
     XXX.cancel((res) => {
       if(res === true){
-        // TODO : log how much of the order was filled
+        // TODO - log how much of the order was filled
         
         callback()
       }

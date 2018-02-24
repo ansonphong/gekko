@@ -35,7 +35,7 @@ var Manager = function(conf) {
   this.conf = conf;
   this.portfolio = {};
   this.fee;
-  this.action; // TODO : remove all referrence so this and let Trade class handle it
+  this.action; // TODO - remove all referrence so this and let Trade class handle it
 
   this.marketConfig = _.find(this.exchangeMeta.markets, function(p) {
     return _.first(p.pair) === conf.currency.toUpperCase() && _.last(p.pair) === conf.asset.toUpperCase();
@@ -152,47 +152,34 @@ Manager.prototype.getMinimum = function(price) {
     return minimum = this.minimalOrder.amount;
 };
 
-// The trade object makes sure the limit order gets submitted
-// to the exchange and initiates order registers watchers.
 Manager.prototype.trade = function(what) {
+  if(what)
+    this.action = what;
 
-  if(this.currentTrade){
-    // if action has changed, make a new trade
-    if(this.currentTrade.action !== what){
-      this.currentTrade.deinit(this.trade,what)
+  // if an active trade is currently happening
+  if(this.currentTrade && this.currentTrade.isActive){
+    if(this.currentTrade.action !== this.action){
+      // stop the current trade, and then re-run this method
+      this.currentTrade.deinit(this.trade)
+    } else{
+      // do nothing, the trade is already going
     }
-  // if no trade exists, make a new one
   } else {
-    this.currentTrade = this.newTrade(what)
+    this.newTrade(this.action)
   }
-};
-
-// calculate how much we can buy or sell
-Manager.prototype.getTradeAmount = function(what) {
-  if(what === "BUY"){
-    return this.getBalance(this.currency) / this.ticker.ask;
-  }
-  else if (what === "SELL"){
-    return this.getBalance(this.asset) - this.keepAsset;
-  }
-  return false
 };
 
 // instantiate a new trade object
-// TODO : impliment different trade execution types / strategies
+// TODO - impliment different trade execution types / strategies
 //        by invoking variable trade subclasses
+//      - pass the trade a specific amount limited by a currency allowance
 Manager.prototype.newTrade = function(what) {
-  let tradeAmount = this.tradeAmount(what)
-
-  if(!tradeAmount)
-    return false
-
-  return new Trade(this,{
-    action: what,
-    currency:this.currency,
-    asset:this.asset,
-    amount: tradeAmount
-  })
+  // push the current (asummed to be inactive) trade to the history
+  if(this.currentTrade){
+    this.tradeHistory.push(this.currentTrade)
+    this.currentTrade = false
+  }
+  return this.currentTrade = new Trade(this,{action: what})
 };
 
 // convert into the portfolio expected by the performanceAnalyzer

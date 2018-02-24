@@ -18,7 +18,6 @@ var moment = require('moment');
 
 */
 
-
 class Order{
   constructor(trade,settings){
     this.trade = trade // store a referrence to the parent trade
@@ -28,6 +27,7 @@ class Order{
     this.txid = false // id of this order on the exchange
     this.type = "limit" // limit/market/stoplimit
     this.stat = "placing" // placing/open/filled/cancelled
+    this.isActive = true
 
     this.offset = 0
 
@@ -90,9 +90,13 @@ class Order{
 
     // then
       this.currentOrder.stat = "cancelled"
+      this.active = false
+
       log.debug("successfully cancelled order:", this.txid)
 
       callback(res)
+
+
 
       log.debug("could not cancel order:", this.txid, ", rescheduling")
 
