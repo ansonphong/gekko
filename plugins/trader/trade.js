@@ -1,27 +1,8 @@
 /*
-  @askmike
-  I propose to create something a bit more clear and subtle: a new class that is responsible for
-  doing a single trade (let's call him broker or execution strategy or so), it needs to:
-
-  - Figure out if there is a limit on the size of the trade we can do.
-  - If we can't do any trade (low funds) don't do anything.
-  - If we can do a trade figure out what kind of trade we aim to do (sell X USD) and trigger an event (see #1850).
-  - Try to buy sell according to current "limit order do not cross spread" strategy (explained here).
-  - Only when fully completed figure out trade statistics (average execution rate, amount that was traded, etc).
-  - Only after this upstream a trade event with the statistics.
-
-  The reason I want to pull this out is so that in the future we can have different execution strategies:
-  the current one tries to get the best price - at the cost of execution speed (since it will always
-  make orders it might take a long time before the trade is completed, especially when trying to catch
-  a trend). Once it's split out we can easily create another one that will do a market order instead.
-  Or one that tries to split the order out into multiple small ones (bigger traders need ways to take
-  pressure of the market for example).
-
-*/
-
-/*
   The Trade class is responsible for overseeing potentially multiple orders
   to execute a trade that completely moves a position instantiated by the portfolio manager.
+
+  Discussion about this class can be found at: https://github.com/askmike/gekko/issues/1942
 */
 
 var _ = require('lodash')
