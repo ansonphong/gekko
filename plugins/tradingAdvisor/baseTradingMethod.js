@@ -4,6 +4,7 @@ var util = require('../../core/util');
 var config = util.getConfig();
 var dirs = util.dirs();
 var log = require(dirs.core + 'log');
+var cp = require(dirs.core + 'cp');
 
 var ENV = util.gekkoEnv();
 var mode = util.gekkoMode();
@@ -173,10 +174,13 @@ Base.prototype.tick = function(candle) {
     // handle result from talib
     _.each(
       this.talibIndicators,
-      indicator => indicator.run(
+      (indicator, methodName) => {
+        indicator.run(
         basectx.candleProps,
         talibResultHander.bind(indicator)
       )
+
+    }
     );
 
     // handle result from tulip
@@ -230,8 +234,8 @@ Base.prototype.propogateTick = function(candle) {
   if(mode === 'realtime'){
     // Subtract number of minutes in current candle for instant start
     let startTimeMinusCandleSize = startTime.clone();
-    startTimeMinusCandleSize.subtract(this.tradingAdvisor.candleSize, "minutes"); 
-    
+    startTimeMinusCandleSize.subtract(this.tradingAdvisor.candleSize, "minutes");
+
     isPremature = candle.start < startTimeMinusCandleSize;
   }
   else{
@@ -251,6 +255,33 @@ Base.prototype.propogateTick = function(candle) {
   ) {
     return this.tick(this.deferredTicks.shift())
   }
+
+  _.each(this.indicators, (indicator, name) => {
+       cp.indicatorResult({
+         name: name,
+         date: candle.start,
+         result: indicator
+       });
+     })
+
+   _.each(this.talibIndicators, (indicator, name) => {
+        //console.log(name,indicator.result);
+        cp.indicatorResult({
+          name: name,
+          date: candle.start,
+          result: indicator.result
+        });
+      })
+
+      _.each(this.tulipIndicators, (indicator, name) => {
+           //console.log(name, indicator.result);
+           cp.indicatorResult({
+             name: name,
+             date: candle.start,
+             result: indicator.result
+           });
+         })
+
 
   // are we totally finished?
   var done = this.age === this.processedTicks;
