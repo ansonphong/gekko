@@ -5,7 +5,7 @@
       h3 Backtest result
     result-summary(:report='result.report')
     .hr.contain
-    chart(:data='result', height='500')
+    chart(:data='result', height='780')
     .hr.contain
     roundtripTable(:roundtrips='result.roundtrips')
 </template>

@@ -1,12 +1,14 @@
 // listen to all messages and internally queue
 // all candles and trades, when done report them
 // all back at once
+var _ = require('lodash');
 
 module.exports = done => {
   var trades = [];
   var roundtrips = []
   var candles = [];
   var report = false;
+  var indicatorResults = {};
 
   return {
     message: message => {
@@ -25,6 +27,16 @@ module.exports = done => {
 
       else if(message.log)
         console.log(message.log);
+
+        else if(message.type === 'indicatorResult') {
+          if(!_.has(indicatorResults, message.indicatorResult.name))
+             indicatorResults[message.indicatorResult.name] = [];
+
+           indicatorResults[message.indicatorResult.name].push({
+            result: message.indicatorResult.result,
+             date: message.indicatorResult.date
+           });
+         }
     },
     exit: status => {
       if(status !== 0)
@@ -34,7 +46,8 @@ module.exports = done => {
           trades: trades,
           candles: candles,
           report: report,
-          roundtrips: roundtrips
+          roundtrips: roundtrips,
+          indicatorResults: indicatorResults
         });
     }
   }
