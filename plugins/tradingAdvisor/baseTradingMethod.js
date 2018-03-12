@@ -257,30 +257,30 @@ Base.prototype.propogateTick = function(candle) {
   }
 
   _.each(this.indicators, (indicator, name) => {
-       cp.indicatorResult({
-         name: name,
-         date: candle.start,
-         result: indicator
-       });
-     })
+     cp.indicatorResult({
+       name: name,
+       date: candle.start,
+       result: indicator
+     });
+   })
 
-   _.each(this.talibIndicators, (indicator, name) => {
-        //console.log(name,indicator.result);
-        cp.indicatorResult({
-          name: name,
-          date: candle.start,
-          result: indicator.result
-        });
-      })
+  _.each(this.talibIndicators, (indicator, name) => {
+    //console.log(name,indicator.result);
+    cp.indicatorResult({
+      name: name,
+      date: candle.start,
+      result: indicator.result
+    });
+  })
 
-      _.each(this.tulipIndicators, (indicator, name) => {
-           //console.log(name, indicator.result);
-           cp.indicatorResult({
-             name: name,
-             date: candle.start,
-             result: indicator.result
-           });
-         })
+  _.each(this.tulipIndicators, (indicator, name) => {
+     //console.log(name, indicator.result);
+     cp.indicatorResult({
+       name: name,
+       date: candle.start,
+       result: indicator.result
+     });
+   })
 
 
   // are we totally finished?
