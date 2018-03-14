@@ -30,6 +30,12 @@ var strat = {
 		config.silent = true;
 		config.debug = false;
 
+		this.addIndicator('StochRSI','L_STOCHRSI',{
+			rsiInterval: 7,
+			stochInterval: 7,
+			emaInterval: 3
+		})
+
 		// SMA
 		this.addTulipIndicator('maSlow', 'sma', { optInTimePeriod: this.settings.SMA_long });
 		this.addTulipIndicator('maFast', 'sma', { optInTimePeriod: this.settings.SMA_short });
