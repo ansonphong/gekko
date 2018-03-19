@@ -15,33 +15,59 @@ var checker = require(dirs.core + 'exchangeChecker.js')
 var moment = require('moment')
 
 class Trade{
-  constructor(manager,settings){
-    this.manager = manager
-    this.exchange = manager.exchange
-    this.currency = manager.currency
-    this.asset = manager.asset
-    this.action = settings.action
+  constructor(conf){
+    this.conf = conf
+    this.exchange = conf.exchange
+    this.portfolio = conf.portfolio
+    this.currency = conf.currency
+    this.asset = conf.asset
+    this.action = conf.action
     this.isActive = true
+    this.isDeactivating = false
     this.orderIds = []
 
-    log.debug("creating new Trade class to", this.action, this.asset + "/" + this.currency)
+    this.exchangeMeta = checker.settings({exchange:this.exchange.name});
+
+    this.marketConfig = _.find(this.exchangeMeta.markets, function(p) {
+      return _.first(p.pair) === conf.currency.toUpperCase() && _.last(p.pair) === conf.asset.toUpperCase();
+    });
+    this.minimalOrder = this.marketConfig.minimalOrder;
+
+    log.debug("created new Trade class to", this.action, this.asset + "/" + this.currency)
+
+    if(_.isNumber(conf.keepAsset)) {
+      log.debug('Keep asset is active. Will try to keep at least ' + conf.keepAsset + ' ' + conf.asset);
+      this.keepAsset = conf.keepAsset;
+    } else {
+      this.keepAsset = 0;
+    }
 
     this.doTrade()
   }
 
-  stop(callback){
-    this.cancelLastOrder(()=>{
+  deactivate(callback){
+    this.isDeactivating = true
+
+    log.debug("attempting to stop Trade class from", this.action + "ING", this.asset + "/" + this.currency)
+    
+    let done = () => {
       this.isActive = false
-      log.debug("stopping Trade class from", this.action + "ING", this.asset + "/" + this.currency)
+      log.debug("successfully stopped Trade class from", this.action + "ING", this.asset + "/" + this.currency)
       if(_.isFunction(callback))
         callback()
-    })
+    }
+
+    if(_.size(this.orderIds)){
+      this.cancelLastOrder(done)
+    } else {
+      done()
+    }
   }
 
   // This function makes sure the limit order gets submitted
   // to the exchange and initiates order registers watchers.
   doTrade(retry) {
-    if(!this.isActive)
+    if(!this.isActive || this.isDeactivating)
       return false
     
     // if we are still busy executing the last trade
@@ -49,32 +75,33 @@ class Trade{
     if(!retry && _.size(this.orderIds))
       return this.cancelLastOrder(() => this.doTrade());
 
-    var act = function() {
+    let act = () => {
       var amount, price;
 
       if(this.action === 'BUY') {
 
-        amount = this.manager.getBalance(this.currency) / this.manager.ticker.ask;
+        amount = this.portfolio.getBalance(this.currency) / this.portfolio.ticker.ask;
         if(amount > 0){
-            price = this.manager.ticker.bid;
+            price = this.portfolio.ticker.bid;
             this.buy(amount, price);
         }
       } else if(this.action === 'SELL') {
 
-        amount = this.manager.getBalance(this.asset) - this.manager.keepAsset;
+        amount = this.portfolio.getBalance(this.asset) - this.keepAsset;
         if(amount > 0){
-            price = this.manager.ticker.ask;
+            price = this.portfolio.ticker.ask;
             this.sell(amount, price);
         }
       }
-    };
-    async.series([
-      this.manager.setTicker,
-      this.manager.setPortfolio,
-      this.manager.setFee
-    ], _.bind(act, this));
+    }
 
-  };
+    async.series([
+      this.portfolio.setTicker.bind(this.portfolio),
+      this.portfolio.setPortfolio.bind(this.portfolio),
+      this.portfolio.setFee.bind(this.portfolio),
+    ], act);
+
+  }
 
   // first do a quick check to see whether we can buy
   // the asset, if so BUY and keep track of the order
@@ -82,6 +109,11 @@ class Trade{
   buy(amount, price) {
     let minimum = 0;
     let process = (err, order) => {
+
+      if(!this.isActive || this.isDeactivating){
+        return log.debug(this.action, "trade class is no longer active")
+      }
+
       // if order to small
       if(!order.amount || order.amount < minimum) {
         return log.warn(
@@ -111,10 +143,10 @@ class Trade{
     if (_.has(this.exchange, 'getLotSize')) {
       this.exchange.getLotSize('buy', amount, price, _.bind(process));
     } else {
-      minimum = this.manager.getMinimum(price);
+      minimum = this.getMinimum(price);
       process(undefined, { amount: amount, price: price });
     }
-  };
+  }
 
   // first do a quick check to see whether we can sell
   // the asset, if so SELL and keep track of the order
@@ -122,6 +154,11 @@ class Trade{
   sell(amount, price) {
     let minimum = 0;
     let process = (err, order) => {
+
+      if(!this.isActive || this.isDeactivating){
+        return log.debug(this.action, "trade class is no longer active")
+      }
+
       // if order to small
       if (!order.amount || order.amount < minimum) {
         return log.warn(
@@ -151,24 +188,33 @@ class Trade{
     if (_.has(this.exchange, 'getLotSize')) {
       this.exchange.getLotSize('sell', amount, price, _.bind(process));
     } else {
-      minimum = this.manager.getMinimum(price);
+      minimum = this.getMinimum(price);
       process(undefined, { amount: amount, price: price });
     }
-  };
+  }
 
 
   // check whether the order got fully filled
   // if it is not: cancel & instantiate a new order
   checkOrder() {
     var handleCheckResult = function(err, filled) {
+
+      if(this.isDeactivating){
+        return log.debug("checkOrder() : ", this.action, "trade class is currently deactivating, stop check")
+      }
+
+      if(!this.isActive){
+        return log.debug("checkOrder() : ", this.action, "trade class is no longer active, stop check")
+      }
+
       if(!filled) {
         log.info(this.action, 'order was not (fully) filled, cancelling and creating new order');
+        log.debug("checkOrder() : cancelling last " + this.action + " order ID : ", _.last(this.orderIds))
         this.exchange.cancelOrder(_.last(this.orderIds), _.bind(handleCancelResult, this));
-
         return;
       }
 
-      log.debug("Trade class was successful", this.action + "ING", this.asset + "/" + this.currency)
+      log.info("Trade class was successful", this.action + "ING", this.asset + "/" + this.currency)
       this.isActive = false;
 
       this.relayOrder();
@@ -178,7 +224,7 @@ class Trade{
       if(alreadyFilled)
         return;
 
-      if(this.manager.exchangeMeta.forceReorderDelay) {
+      if(this.exchangeMeta.forceReorderDelay) {
           //We need to wait in case a canceled order has already reduced the amount
           var wait = 10;
           log.debug(`Waiting ${wait} seconds before starting a new trade on ${this.exchangeMeta.name}!`);
@@ -197,13 +243,13 @@ class Trade{
   }
 
   cancelLastOrder(done) {
+    log.debug("checkOrder() : cancelling last " + this.action + " order ID : ", _.last(this.orderIds))
     this.exchange.cancelOrder(_.last(this.orderIds), alreadyFilled => {
       if(alreadyFilled)
         return this.relayOrder(done);
-
-      this.orderIds = [];
       done();
     });
+
   }
 
   noteOrder(err, order) {
@@ -214,13 +260,13 @@ class Trade{
     this.orderIds.push(order);
 
     // If unfilled, cancel and replace order with adjusted price
-    let cancelDelay = this.manager.conf.orderUpdateDelay || 1;
+    let cancelDelay = this.conf.orderUpdateDelay || 1;
     setTimeout(_.bind(this.checkOrder,this), util.minToMs(cancelDelay));
-  };
+  }
 
   relayOrder(done) {
     // look up all executed orders and relay average.
-    var relay = (err, res) => {
+    let relay = (err, res) => {
 
       var price = 0;
       var amount = 0;
@@ -233,10 +279,10 @@ class Trade{
       });
 
       async.series([
-        this.manager.setPortfolio,
-        this.manager.setTicker
+        this.portfolio.setTicker.bind(this.portfolio),
+        this.portfolio.setPortfolio.bind(this.portfolio)
       ], () => {
-        const portfolio = this.manager.convertPortfolio(this.manager.portfolio);
+        const portfolio = this.portfolio.convertPortfolio(this.asset,this.currency);
 
         this.emit('trade', {
           date,
@@ -251,8 +297,6 @@ class Trade{
           action: this.action.toLowerCase()
         });
 
-        this.orderIds = [];
-
         if(_.isFunction(done))
           done();
       });
@@ -265,6 +309,13 @@ class Trade{
     );
 
     async.series(getOrders, relay);
+  }
+
+  getMinimum(price) {
+    if(this.minimalOrder.unit === 'currency')
+      return minimum = this.minimalOrder.amount / price;
+    else
+      return minimum = this.minimalOrder.amount;
   }
 
 }
