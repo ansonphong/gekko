@@ -58,7 +58,7 @@ class Portfolio{
           let item = _.find(fullPortfolio, {name});
 
           if(!item) {
-            log.debug(`Unable to find "${name}" in portfolio provided by exchange, assuming 0.`);
+            log.debug(`unable to find "${name}" in portfolio provided by exchange, assuming 0.`);
             item = {name, amount: 0};
           }
 

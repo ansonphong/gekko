@@ -1,7 +1,6 @@
 /*
   The Trade class is responsible for overseeing potentially multiple orders
-  to execute a trade that completely moves a position instantiated by the portfolio manager.
-
+  to execute a trade that completely moves a position.
   Discussion about this class can be found at: https://github.com/askmike/gekko/issues/1942
 */
 
@@ -36,7 +35,7 @@ class Trade{
     log.debug("created new Trade class to", this.action, this.asset + "/" + this.currency)
 
     if(_.isNumber(conf.keepAsset)) {
-      log.debug('Keep asset is active. Will try to keep at least ' + conf.keepAsset + ' ' + conf.asset);
+      log.debug('keep asset is active. will try to keep at least ' + conf.keepAsset + ' ' + conf.asset);
       this.keepAsset = conf.keepAsset;
     } else {
       this.keepAsset = 0;
@@ -77,16 +76,13 @@ class Trade{
 
     let act = () => {
       var amount, price;
-
       if(this.action === 'BUY') {
-
         amount = this.portfolio.getBalance(this.currency) / this.portfolio.ticker.ask;
         if(amount > 0){
             price = this.portfolio.ticker.bid;
             this.buy(amount, price);
         }
       } else if(this.action === 'SELL') {
-
         amount = this.portfolio.getBalance(this.asset) - this.keepAsset;
         if(amount > 0){
             price = this.portfolio.ticker.ask;
@@ -100,7 +96,6 @@ class Trade{
       this.portfolio.setPortfolio.bind(this.portfolio),
       this.portfolio.setFee.bind(this.portfolio),
     ], act);
-
   }
 
   // first do a quick check to see whether we can buy
@@ -108,16 +103,15 @@ class Trade{
   // (amount is in asset quantity)
   buy(amount, price) {
     let minimum = 0;
-    let process = (err, order) => {
 
+    let process = (err, order) => {
       if(!this.isActive || this.isDeactivating){
         return log.debug(this.action, "trade class is no longer active")
       }
-
       // if order to small
       if(!order.amount || order.amount < minimum) {
         return log.warn(
-          'Wanted to buy',
+          'wanted to buy',
           this.asset,
           'but the amount is too small ',
           '(' + parseFloat(amount).toFixed(8) + ' @',
@@ -128,7 +122,7 @@ class Trade{
       }
 
       log.info(
-        'Attempting to BUY',
+        'attempting to BUY',
         order.amount,
         this.asset,
         'at',
@@ -162,7 +156,7 @@ class Trade{
       // if order to small
       if (!order.amount || order.amount < minimum) {
         return log.warn(
-          'Wanted to buy',
+          'wanted to buy',
           this.currency,
           'but the amount is too small ',
           '(' + parseFloat(amount).toFixed(8) + ' @',
@@ -173,7 +167,7 @@ class Trade{
       }
 
       log.info(
-        'Attempting to SELL',
+        'attempting to SELL',
         order.amount,
         this.asset,
         'at',
@@ -200,21 +194,21 @@ class Trade{
     var handleCheckResult = function(err, filled) {
 
       if(this.isDeactivating){
-        return log.debug("checkOrder() : ", this.action, "trade class is currently deactivating, stop check")
+        return log.debug("trade : checkOrder() : ", this.action, "trade class is currently deactivating, stop check order")
       }
 
       if(!this.isActive){
-        return log.debug("checkOrder() : ", this.action, "trade class is no longer active, stop check")
+        return log.debug("trade : checkOrder() : ", this.action, "trade class is no longer active, stop check order")
       }
 
       if(!filled) {
         log.info(this.action, 'order was not (fully) filled, cancelling and creating new order');
-        log.debug("checkOrder() : cancelling last " + this.action + " order ID : ", _.last(this.orderIds))
+        log.debug("trade : checkOrder() : cancelling last " + this.action + " order ID : ", _.last(this.orderIds))
         this.exchange.cancelOrder(_.last(this.orderIds), _.bind(handleCancelResult, this));
         return;
       }
 
-      log.info("Trade class was successful", this.action + "ING", this.asset + "/" + this.currency)
+      log.info("trade was successful", this.action + "ING", this.asset + "/" + this.currency)
       this.isActive = false;
 
       this.relayOrder();
@@ -243,7 +237,7 @@ class Trade{
   }
 
   cancelLastOrder(done) {
-    log.debug("checkOrder() : cancelling last " + this.action + " order ID : ", _.last(this.orderIds))
+    log.debug("trade : cancelLastOrder() : cancelling last " + this.action + " order ID : ", _.last(this.orderIds))
     this.exchange.cancelOrder(_.last(this.orderIds), alreadyFilled => {
       if(alreadyFilled)
         return this.relayOrder(done);
@@ -317,7 +311,6 @@ class Trade{
     else
       return minimum = this.minimalOrder.amount;
   }
-
 }
 
 util.makeEventEmitter(Trade)

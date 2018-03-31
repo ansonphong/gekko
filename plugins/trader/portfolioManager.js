@@ -1,10 +1,6 @@
 /*
   The portfolio manager is responsible for making sure that
-  all decisions are turned into orders and make sure these orders
-  get executed. Besides the orders the manager also keeps track of
-  the client's portfolio.
-
-  NOTE: Execution strategy is limit orders (to not cross the book)
+  all decisions are turned into Trades.
 */
 
 var _ = require('lodash');
@@ -19,7 +15,6 @@ var Portfolio = require('./portfolio');
 var Trade = require('./trade');
 
 var Manager = function(conf) {
-  //_.bindAll(this);
   this.conf = conf;
 
   var error = checker.cantTrade(conf);
@@ -44,7 +39,7 @@ var Manager = function(conf) {
 util.makeEventEmitter(Manager);
 
 Manager.prototype.init = function(callback) {
-  log.debug('getting balance & fee from', this.exchange.name);
+  log.debug('portfolioManager : getting balance & fee from', this.exchange.name);
 
   let prepare = () => {  
     log.info('trading at', this.exchange.name, 'ACTIVE');
@@ -58,13 +53,11 @@ Manager.prototype.init = function(callback) {
     this.portfolio.setTicker.bind(this.portfolio),
     this.portfolio.setPortfolio.bind(this.portfolio)
   ], prepare);
-  
 }
 
 Manager.prototype.trade = function(what) {
 
   let makeNewTrade = () => {
-    log.debug("PORTFOLIO MANAGER : trade() - makeNewTrade callback : creating a new Trade class to ", what, this.conf.asset, "/", this.conf.currency)
     this.newTrade(what)
   }
 
@@ -82,11 +75,8 @@ Manager.prototype.trade = function(what) {
 };
 
 // instantiate a new trade object
-// TODO - impliment different trade execution types / strategies
-//        by invoking variable trade subclasses
-//      - pass the trade a specific amount limited by a currency allowance
 Manager.prototype.newTrade = function(what) {
-  log.debug("PORTFOLIO MANAGER : newTrade() : creating a new Trade class to ", what, this.conf.asset, "/", this.conf.currency)
+  log.debug("portfolioManager : newTrade() : creating a new Trade class to ", what, this.conf.asset, "/", this.conf.currency)
 
   // push the current (asummed to be inactive) trade to the history
   if(this.currentTrade){
@@ -103,7 +93,5 @@ Manager.prototype.newTrade = function(what) {
     keepAsset: (this.conf.keepAsset) ? this.conf.keepAsset : false
   })
 };
-
-
 
 module.exports = Manager;
